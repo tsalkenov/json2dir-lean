@@ -1,0 +1,9 @@
+{
+  "greeting.txt": "Hello from Lean!\n",
+  "docs": {
+    "readme.txt": "This file was created from sample.json.\n",
+    "empty": {}
+  },
+  "greeting-link": ["link", "greeting.txt"],
+  "hello.sh": ["script", "#!/bin/sh\necho Hello from json2dir\n"]
+}

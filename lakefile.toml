@@ -1,0 +1,10 @@
+name = "json2dir-lean"
+version = "0.1.0"
+defaultTargets = ["json2dir"]
+
+[[lean_lib]]
+name = "Spec"
+
+[[lean_exe]]
+name = "json2dir"
+root = "Main"

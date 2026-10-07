@@ -1,4 +1,4 @@
-import Lean
+import Lean.Data.Json.Parser
 
 namespace Json2Dir
 

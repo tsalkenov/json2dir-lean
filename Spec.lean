@@ -4,9 +4,11 @@ namespace Json2Dir
 
 open Lean
 
-/-- A name that cannot denote a root, parent, current directory, or nested path. -/
+/-- A name that cannot denote a root, parent, current directory, or nested path,
+    and contains no NUL byte. -/
 def safeComponent (part : String) : Bool :=
-  !part.isEmpty && part != "." && part != ".." && !part.contains '/'
+  !part.isEmpty && part != "." && part != ".." &&
+    !part.contains '/' && !part.contains '\x00'
 
 inductive NameError where
   | multipleComponents
@@ -50,12 +52,63 @@ theorem parseName_safe {name part : String} (h : parseName name = .ok part) :
     safeComponent part = true :=
   interpretParts_safe h
 
-/-- Accepted keys cannot resolve to empty, dot, parent, or nested components. -/
+/-- Accepted keys cannot resolve to empty, dot, parent, nested, or NUL components. -/
 theorem parseName_noTraversal {name part : String} (h : parseName name = .ok part) :
-    part.isEmpty = false ∧ part != "." ∧ part != ".." ∧ part.contains '/' = false := by
+    part.isEmpty = false ∧ part != "." ∧ part != ".." ∧
+      part.contains '/' = false ∧ part.contains '\x00' = false := by
   have hs := parseName_safe h
   simp only [safeComponent, Bool.and_eq_true] at hs
-  cases hEmpty : part.isEmpty <;> cases hSlash : part.contains '/' <;> simp_all
+  cases hEmpty : part.isEmpty <;>
+    cases hSlash : part.contains '/' <;>
+    cases hNul : part.contains '\x00' <;> simp_all
+
+private def hexDigit? (c : Char) : Option Nat :=
+  if '0' ≤ c && c ≤ '9' then some (c.toNat - '0'.toNat)
+  else if 'a' ≤ c && c ≤ 'f' then some (c.toNat - 'a'.toNat + 10)
+  else if 'A' ≤ c && c ≤ 'F' then some (c.toNat - 'A'.toNat + 10)
+  else none
+
+private def codeUnit? : List Char → Option (Nat × List Char)
+  | a :: b :: c :: d :: rest => do
+    let a ← hexDigit? a
+    let b ← hexDigit? b
+    let c ← hexDigit? c
+    let d ← hexDigit? d
+    return (a * 4096 + b * 256 + c * 16 + d, rest)
+  | _ => none
+
+mutual
+
+private partial def scanOutside : List Char → Bool
+  | [] => true
+  | '"' :: rest => scanInside rest
+  | _ :: rest => scanOutside rest
+
+private partial def scanInside : List Char → Bool
+  | [] => true
+  | '"' :: rest => scanOutside rest
+  | '\\' :: 'u' :: rest =>
+    match codeUnit? rest with
+    | none => false
+    | some (unit, rest) =>
+      if 0xD800 ≤ unit && unit ≤ 0xDBFF then
+        match rest with
+        | '\\' :: 'u' :: rest =>
+          match codeUnit? rest with
+          | some (low, rest) =>
+            if 0xDC00 ≤ low && low ≤ 0xDFFF then scanInside rest else false
+          | none => false
+        | _ => false
+      else if 0xDC00 ≤ unit && unit ≤ 0xDFFF then false
+      else scanInside rest
+  | '\\' :: _ :: rest => scanInside rest
+  | '\\' :: [] => false
+  | _ :: rest => scanInside rest
+
+end
+
+/-- Reject unpaired surrogate escapes before Lean's permissive JSON parser replaces them. -/
+def validUnicodeEscapes (input : String) : Bool := scanOutside input.toList
 
 inductive Entry where
   | directory (children : Std.TreeMap.Raw String Json)
